@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <stdio.h>
+#include <iostream>
 
 #include "socket_tools.h"
 
@@ -60,3 +61,16 @@ int create_dgram_socket(const char *address, const char *port, addrinfo *res_add
   return sfd;
 }
 
+
+int send_message(int fd, MessageType message_type, std::string message, addrinfo addrInfo) {
+    char* message_data = (char*)malloc(message.length() + sizeof(MessageType));
+    message_data[0] = (char)message_type;
+    memcpy(message_data + sizeof(MessageType), message.c_str(), message.length());
+    
+    ssize_t res = sendto(fd, message_data, message.size() + sizeof(MessageType), 0, addrInfo.ai_addr, addrInfo.ai_addrlen);
+    if (res == -1) {
+        std::cout << strerror(errno) << std::endl;
+        return 1;
+    }
+    return 0;
+}

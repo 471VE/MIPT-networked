@@ -1,28 +1,22 @@
 #include <enet/enet.h>
 #include <iostream>
+#include <cstring>
+#include <thread>
+#include <string>
 
-void send_fragmented_packet(ENetPeer *peer)
-{
-  const char *baseMsg = "Stay awhile and listen. ";
-  const size_t msgLen = strlen(baseMsg);
+void input_async(ENetPeer* lobby, ENetPeer* server) {
+  while (!server) {
+    std::string input;
+    std::getline(std::cin, input);
 
-  const size_t sendSize = 2500;
-  char *hugeMessage = new char[sendSize];
-  for (size_t i = 0; i < sendSize; ++i)
-    hugeMessage[i] = baseMsg[i % msgLen];
-  hugeMessage[sendSize-1] = '\0';
-
-  ENetPacket *packet = enet_packet_create(hugeMessage, sendSize, ENET_PACKET_FLAG_RELIABLE);
-  enet_peer_send(peer, 0, packet);
-
-  delete[] hugeMessage;
-}
-
-void send_micro_packet(ENetPeer *peer)
-{
-  const char *msg = "dv/dt";
-  ENetPacket *packet = enet_packet_create(msg, strlen(msg) + 1, ENET_PACKET_FLAG_UNSEQUENCED);
-  enet_peer_send(peer, 1, packet);
+    if (!strcmp(input.data(), "start")) {
+      printf("Starting the game...\n");
+      const char *msg = "start";
+      ENetPacket *packet = enet_packet_create(msg, strlen(msg) + 1, ENET_PACKET_FLAG_RELIABLE);
+      enet_peer_send(lobby, 0, packet);
+      break;
+    }
+  }
 }
 
 int main(int argc, const char **argv)
@@ -33,28 +27,29 @@ int main(int argc, const char **argv)
     return 1;
   }
 
-  ENetHost *client = enet_host_create(nullptr, 1, 2, 0, 0);
+  ENetHost *client = enet_host_create(nullptr, 2, 2, 0, 0);
   if (!client)
   {
     printf("Cannot create ENet client\n");
     return 1;
   }
 
-  ENetAddress address;
-  enet_address_set_host(&address, "localhost");
-  address.port = 10887;
+  ENetAddress address_lobby;
+  enet_address_set_host(&address_lobby, "localhost");
+  address_lobby.port = 10887;
 
-  ENetPeer *lobbyPeer = enet_host_connect(client, &address, 2, 0);
+  ENetPeer *lobbyPeer = enet_host_connect(client, &address_lobby, 2, 0);
   if (!lobbyPeer)
   {
     printf("Cannot connect to lobby");
     return 1;
   }
 
+  ENetPeer *serverPeer = nullptr;
+  std::thread input_thread(input_async, lobbyPeer, serverPeer);
+
   uint32_t timeStart = enet_time_get();
-  uint32_t lastFragmentedSendTime = timeStart;
-  uint32_t lastMicroSendTime = timeStart;
-  bool connected = false;
+  uint32_t lastTimeSend = timeStart;
   while (true)
   {
     ENetEvent event;
@@ -64,30 +59,44 @@ int main(int argc, const char **argv)
       {
       case ENET_EVENT_TYPE_CONNECT:
         printf("Connection with %x:%u established\n", event.peer->address.host, event.peer->address.port);
-        connected = true;
         break;
       case ENET_EVENT_TYPE_RECEIVE:
-        printf("Packet received '%s'\n", event.packet->data);
+        printf("Message received:\n'%s'\n\n", event.packet->data);
+        if (event.packet->data[0] == 'p') {
+          uint16_t port = std::atoi((const char *)(event.packet->data + 1));
+
+          ENetAddress address_server;
+          enet_address_set_host(&address_server, "localhost");
+          address_server.port = port;
+
+          serverPeer = enet_host_connect(client, &address_server, 2, 0);
+          if (!serverPeer) {
+            printf("Cannot connect to a server");
+            return 1;
+          }
+          printf("Connecting to game server on port %u\n", port);
+        }
         enet_packet_destroy(event.packet);
         break;
       default:
         break;
       };
     }
-    if (connected)
+    if (serverPeer)
     {
       uint32_t curTime = enet_time_get();
-      if (curTime - lastFragmentedSendTime > 1000)
+      if (curTime - lastTimeSend > 3000)
       {
-        lastFragmentedSendTime = curTime;
-        send_fragmented_packet(lobbyPeer);
-      }
-      if (curTime - lastMicroSendTime > 100)
-      {
-        lastMicroSendTime = curTime;
-        send_micro_packet(lobbyPeer);
+        std::string time = "Client time: " + std::to_string(curTime);
+        ENetPacket *packet = enet_packet_create(time.data(), time.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+        enet_peer_send(serverPeer, 0, packet);
+        lastTimeSend = curTime;
       }
     }
   }
+  enet_host_destroy(client);
+
+  atexit(enet_deinitialize);
+  input_thread.join();
   return 0;
 }

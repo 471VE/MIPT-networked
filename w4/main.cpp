@@ -2,11 +2,12 @@
 #include <algorithm> // min/max
 #include "raylib.h"
 #include <enet/enet.h>
+#include <cstdio>
 
 #include <vector>
 #include "entity.h"
 #include "protocol.h"
-
+#include "bitstream.h"
 
 static std::vector<Entity> entities;
 static uint16_t my_entity = invalid_entity;
@@ -30,14 +31,15 @@ void on_set_controlled_entity(ENetPacket *packet)
 void on_snapshot(ENetPacket *packet)
 {
   uint16_t eid = invalid_entity;
-  float x = 0.f; float y = 0.f;
-  deserialize_snapshot(packet, eid, x, y);
+  Vector2 position;
+  float size;
+  deserialize_snapshot(packet, eid, position, size);
   // TODO: Direct adressing, of course!
   for (Entity &e : entities)
     if (e.eid == eid)
     {
-      e.x = x;
-      e.y = y;
+      e.position = position;
+      e.size = size;
     }
 }
 
@@ -69,7 +71,7 @@ int main(int argc, const char **argv)
 
   int width = 700;
   int height = 700;
-  InitWindow(width, height, "w4 networked MIPT");
+  InitWindow(width, height, "Networks HW3");
 
   const int scrWidth = GetMonitorWidth(0);
   const int scrHeight = GetMonitorHeight(0);
@@ -131,11 +133,11 @@ int main(int argc, const char **argv)
         if (e.eid == my_entity)
         {
           // Update
-          e.x += ((left ? -dt : 0.f) + (right ? +dt : 0.f)) * 100.f;
-          e.y += ((up ? -dt : 0.f) + (down ? +dt : 0.f)) * 100.f;
+          e.position.x += ((left ? -dt : 0.f) + (right ? +dt : 0.f)) * 100.f;
+          e.position.y += ((up ? -dt : 0.f) + (down ? +dt : 0.f)) * 100.f;
 
           // Send
-          send_entity_state(serverPeer, my_entity, e.x, e.y);
+          send_entity_state(serverPeer, my_entity, e.position);
         }
     }
 
@@ -145,8 +147,7 @@ int main(int argc, const char **argv)
       BeginMode2D(camera);
         for (const Entity &e : entities)
         {
-          const Rectangle rect = {e.x, e.y, 10.f, 10.f};
-          DrawRectangleRec(rect, GetColor(e.color));
+          DrawCircle((int)e.position.x, (int)e.position.y, e.size, e.color);
         }
 
       EndMode2D();

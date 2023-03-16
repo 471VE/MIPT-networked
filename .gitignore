@@ -36,5 +36,8 @@
 !*/
 !*.*
 
-# enet
+# enet, raylib
 3rdParty/enet
+3rdParty/raylib
+
+build

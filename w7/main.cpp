@@ -1,18 +1,9 @@
 // initial skeleton is a clone from https://github.com/jpcy/bgfx-minimal-example
 //
-#include <bx/bx.h>
-#include <bgfx/bgfx.h>
-#include <bgfx/platform.h>
-#include <bx/timer.h>
-#include <debugdraw/debugdraw.h>
 #include <functional>
-#include "app.h"
+#include "raylib.h"
 #include <enet/enet.h>
 #include <math.h>
-
-//for scancodes
-#include <GLFW/glfw3.h>
-
 
 #include <vector>
 #include "entity.h"
@@ -79,27 +70,33 @@ int main(int argc, const char **argv)
     return 1;
   }
 
-  int width = 1920;
-  int height = 1080;
-  if (!app_init(width, height))
-    return 1;
-  ddInit();
+  int width = 600;
+  int height = 600;
 
-  bx::Vec3 eye(0.f, 0.f, -16.f);
-  bx::Vec3 at(0.f, 0.f, 0.f);
-  bx::Vec3 up(0.f, 1.f, 0.f);
+  InitWindow(width, height, "w5 networked MIPT");
 
-  float view[16];
-  float proj[16];
-  bx::mtxLookAt(view, bx::load<bx::Vec3>(&eye.x), bx::load<bx::Vec3>(&at.x), bx::load<bx::Vec3>(&up.x) );
+  const int scrWidth = GetMonitorWidth(0);
+  const int scrHeight = GetMonitorHeight(0);
+  if (scrWidth < width || scrHeight < height)
+  {
+    width = std::min(scrWidth, width);
+    height = std::min(scrHeight - 150, height);
+    SetWindowSize(width, height);
+  }
 
+  Camera2D camera = { {0, 0}, {0, 0}, 0.f, 1.f };
+  camera.target = Vector2{ 0.f, 0.f };
+  camera.offset = Vector2{ width * 0.5f, height * 0.5f };
+  camera.rotation = 0.f;
+  camera.zoom = 10.f;
+
+
+  SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
 
   bool connected = false;
-  int64_t now = bx::getHPCounter();
-  int64_t last = now;
-  float dt = 0.f;
-  while (!app_should_close())
+  while (!WindowShouldClose())
   {
+    float dt = GetFrameTime();
     ENetEvent event;
     while (enet_host_service(client, &event, 0) > 0)
     {
@@ -130,61 +127,37 @@ int main(int argc, const char **argv)
     }
     if (my_entity != invalid_entity)
     {
-      bool left = app_keypressed(GLFW_KEY_LEFT);
-      bool right = app_keypressed(GLFW_KEY_RIGHT);
-      bool up = app_keypressed(GLFW_KEY_UP);
-      bool down = app_keypressed(GLFW_KEY_DOWN);
+      bool left = IsKeyDown(KEY_LEFT);
+      bool right = IsKeyDown(KEY_RIGHT);
+      bool up = IsKeyDown(KEY_UP);
+      bool down = IsKeyDown(KEY_DOWN);
       // TODO: Direct adressing, of course!
       for (Entity &e : entities)
         if (e.eid == my_entity)
         {
           // Update
           float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
-          float steer = (left ? 1.f : 0.f) + (right ? -1.f : 0.f);
+          float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
 
           // Send
           send_entity_input(serverPeer, my_entity, thr, steer);
         }
     }
 
-    app_poll_events();
-    // Handle window resize.
-    app_handle_resize(width, height);
-    bx::mtxProj(proj, 60.0f, float(width)/float(height), 0.1f, 100.0f, bgfx::getCaps()->homogeneousDepth);
-    bgfx::setViewTransform(0, view, proj);
+    BeginDrawing();
+      ClearBackground(GRAY);
+      BeginMode2D(camera);
+        DrawRectangleLines(-16, -8, 32, 16, GetColor(0xff00ffff));
+        for (const Entity &e : entities)
+        {
+          const Rectangle rect = {e.x, e.y, 3.f, 1.f};
+          DrawRectanglePro(rect, {0.f, 0.5f}, e.ori * 180.f / PI, GetColor(e.color));
+        }
 
-    // This dummy draw call is here to make sure that view 0 is cleared if no other draw calls are submitted to view 0.
-    const bgfx::ViewId kClearView = 0;
-    bgfx::touch(kClearView);
-
-    DebugDrawEncoder dde;
-
-    dde.begin(0);
-
-    for (const Entity &e : entities)
-    {
-      dde.push();
-
-        dde.setColor(e.color);
-        bx::Vec3 dir = {cosf(e.ori), sinf(e.ori), 0.f};
-        bx::Vec3 pos = {e.x, e.y, -0.01f};
-        dde.drawCapsule(sub(pos, dir), add(pos, dir), 1.f);
-
-      dde.pop();
-    }
-
-    dde.end();
-
-    // Advance to next frame. Process submitted rendering primitives.
-    bgfx::frame();
-    const double freq = double(bx::getHPFrequency());
-    int64_t now = bx::getHPCounter();
-    dt = (float)((now - last) / freq);
-    last = now;
-    printf("%f\n", 1.f/dt);
+      EndMode2D();
+    EndDrawing();
   }
-  ddShutdown();
-  bgfx::shutdown();
-  app_terminate();
+
+  CloseWindow();
   return 0;
 }

@@ -7,6 +7,19 @@
 #include <vector>
 #include <map>
 
+#ifdef WIN32
+  void usleep(__int64 usec) 
+  { 
+    HANDLE timer; 
+    LARGE_INTEGER ft;
+    ft.QuadPart = -(10*usec);
+    timer = CreateWaitableTimer(NULL, TRUE, NULL); 
+    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0); 
+    WaitForSingleObject(timer, INFINITE); 
+    CloseHandle(timer); 
+  }
+#endif
+
 static std::vector<Entity> entities;
 static std::map<uint16_t, ENetPeer*> controlledMap;
 
@@ -22,9 +35,9 @@ void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
     maxEid = std::max(maxEid, e.eid);
   uint16_t newEid = maxEid + 1;
   uint32_t color = 0xff000000 +
-                   0x00440000 * (rand() % 5) +
-                   0x00004400 * (rand() % 5) +
-                   0x00000044 * (rand() % 5);
+                   0x00ff0000 * (rand() % 5) +
+                   0x0000ff00 * (rand() % 5) +
+                   0x000000ff * (rand() % 5);
   float x = (rand() % 4) * 5.f;
   float y = (rand() % 4) * 5.f;
   Entity ent = {color, x, y, 0.f, (rand() / RAND_MAX) * 3.141592654f, 0.f, 0.f, newEid};
@@ -55,6 +68,7 @@ void on_input(ENetPacket *packet)
 
 int main(int argc, const char **argv)
 {
+  hw_test();
   if (enet_initialize() != 0)
   {
     printf("Cannot init ENet");

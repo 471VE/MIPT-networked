@@ -154,7 +154,9 @@ void* packed_int32(uint32_t val)
   {
     uint8_t* ptr = new uint8_t;
     *ptr = val;
-    std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
+    #if _DEBUG
+      std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
+    #endif
     return ptr;
   }
   else if (val < uint16_limit / 4)
@@ -162,7 +164,9 @@ void* packed_int32(uint32_t val)
     uint16_t* ptr = new uint16_t;
     uint16_t data = (1 << 15) | val;
     *ptr = reverse_byte_order_if_little_endian(data);
-    std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
+    #if _DEBUG
+      std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
+    #endif
     return ptr;
   }
   else if (val < uint32_limit / 4)
@@ -170,12 +174,16 @@ void* packed_int32(uint32_t val)
     uint32_t* ptr = new uint32_t;
     uint32_t data = (3 << 30) | val;
     *ptr = reverse_byte_order_if_little_endian(data);
-    std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
+    #if _DEBUG
+      std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
+    #endif
     return ptr;
   }
   else
   {
-    std::cout << "Unsupported value\n";
+    #if _DEBUG
+      std::cout << "Unsupported value\n";
+    #endif
     return nullptr;
   }
 }

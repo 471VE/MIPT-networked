@@ -1,37 +1,8 @@
 #pragma once
+#include "bitstream.h"
 #include "mathUtils.h"
 #include <limits>
 #include <cassert>
-#include <iostream>
-
-const int i = 1;
-#define is_bigendian() ( (*(char*)&i) == 0 )
-
-uint16_t reverse_byte_order_if_little_endian(uint16_t i) {
-  uint8_t c1, c2;    
-  if (is_bigendian())
-    return i;
-  else
-  {
-    c1 = i & 255;
-    c2 = (i >> 8) & 255;
-    return (c1 << 8) + c2;
-  }
-}
-
-uint32_t reverse_byte_order_if_little_endian(uint32_t i) {
-  uint8_t c1, c2, c3, c4;
-  if (is_bigendian())
-    return i;
-  else
-  {
-    c1 = i & 255;
-    c2 = (i >> 8) & 255;
-    c3 = (i >> 16) & 255;
-    c4 = (i >> 24) & 255;
-    return ((uint32_t)c1 << 24) + ((uint32_t)c2 << 16) + ((uint32_t)c3 << 8) + c4;
-  }
-}
 
 struct float2
 {
@@ -141,70 +112,6 @@ struct PackedVec3
   }
 };
 
-static uint32_t uint8_limit = std::numeric_limits<uint8_t>::max();
-static uint32_t uint16_limit = std::numeric_limits<uint16_t>::max();
-static uint32_t uint32_limit = std::numeric_limits<uint32_t>::max();
-
-// void* is used in order to recreate the conditions when we have a continuous stream of data and we don't know where there is
-// the end of packed data. For these purposes byte order must be big-endian.
-void* packed_int32(uint32_t val)
-{
-  assert(val >= 0);
-  if (val < uint8_limit / 2)
-  {
-    uint8_t* ptr = new uint8_t;
-    *ptr = val;
-    #if _DEBUG
-      std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
-    #endif
-    return ptr;
-  }
-  else if (val < uint16_limit / 4)
-  {
-    uint16_t* ptr = new uint16_t;
-    uint16_t data = (1 << 15) | val;
-    *ptr = reverse_byte_order_if_little_endian(data);
-    #if _DEBUG
-      std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
-    #endif
-    return ptr;
-  }
-  else if (val < uint32_limit / 4)
-  {
-    uint32_t* ptr = new uint32_t;
-    uint32_t data = (3 << 30) | val;
-    *ptr = reverse_byte_order_if_little_endian(data);
-    #if _DEBUG
-      std::cout << "Packed int size: " << sizeof(*ptr) << " bytes\n";
-    #endif
-    return ptr;
-  }
-  else
-  {
-    #if _DEBUG
-      std::cout << "Unsupported value\n";
-    #endif
-    return nullptr;
-  }
-}
-
-uint32_t unpacked_int32(void* ptr)
-{
-  if (!ptr)
-  {
-    std::cerr << "Fatal error: data is nullptr. Most likely the value that was packed exceeded upper limit of " << uint32_limit / 4 << "\n";
-    exit(1);
-  }
-  uint8_t first_byte = *(uint8_t*)ptr;
-  uint8_t type = first_byte >> 6;
-  if (type < 2)
-    return (uint32_t)first_byte;
-  else if (type == 2)
-    return (uint32_t)(reverse_byte_order_if_little_endian(*(uint16_t*)ptr) & 0x3fff);
-  else
-    return (uint32_t)(reverse_byte_order_if_little_endian(*(uint32_t*)ptr) & 0x3fffffff);
-}
-
 void hw_test()
 {
   Interval interval = {-1.f, 1.f};
@@ -229,15 +136,13 @@ void hw_test()
   assert(quantized_equal(unpackedFloat3[2], testFloat3[2], interval, 11));
 
   uint32_t values_to_check[] = {123, 4567, 20000, 2000000000};
-  void* packed_num1 = packed_int32(values_to_check[0]); // 1 byte
-  assert(unpacked_int32(packed_num1) == values_to_check[0]);
 
-  void* packed_num2 = packed_int32(values_to_check[1]); // 2 bytes
-  assert(unpacked_int32(packed_num2) == values_to_check[1]);
+  uint8_t memory_for_bs[1024];
+  Bitstream write_bs = Bitstream(memory_for_bs);
+  Bitstream read_bs  = Bitstream(memory_for_bs);
+  for (size_t i = 0; i < 4; ++i)
+    write_bs.packed_int32(values_to_check[i]);
 
-  void* packed_num3 = packed_int32(values_to_check[2]); // 4 bytes
-  assert(unpacked_int32(packed_num3) == values_to_check[2]);
-
-  void* packed_num4 = packed_int32(values_to_check[3]); // Unsupported
-  assert(packed_num4 == nullptr);
+  for (size_t i = 0; i < 3; ++i)
+    assert(read_bs.unpacked_int32() == values_to_check[i]);
 }

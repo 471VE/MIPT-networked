@@ -33,7 +33,7 @@ template<typename T>
 T pack_float(float v, Interval interval, int num_bits)
 {
   T range = (1 << num_bits) - 1;//std::numeric_limits<T>::max();
-  return range * ((clamp(v, interval.lo, interval.hi) - interval.lo) / (interval.hi - interval.lo));
+  return (T)(range * ((clamp(v, interval.lo, interval.hi) - interval.lo) / (interval.hi - interval.lo)));
 }
 
 template<typename T>

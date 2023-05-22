@@ -1,5 +1,6 @@
 #include <enet/enet.h>
 #include <iostream>
+#include "auxilary.h"
 #include "entity.h"
 #include "protocol.h"
 #include "mathUtils.h"
@@ -22,6 +23,8 @@
 
 static std::vector<Entity> entities;
 static std::map<uint16_t, ENetPeer*> controlledMap;
+static std::vector<Snapshot> snapshotHistory;
+static std::map<uint16_t, uint16_t> approvedReferenceSnapshotMap;
 
 void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
 {
@@ -44,6 +47,7 @@ void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
   entities.push_back(ent);
 
   controlledMap[newEid] = peer;
+  approvedReferenceSnapshotMap[newEid] = 0;
 
 
   // send info about new entity to everyone
@@ -53,22 +57,38 @@ void on_join(ENetPacket *packet, ENetPeer *peer, ENetHost *host)
   send_set_controlled_entity(peer, newEid);
 }
 
-void on_input(ENetPacket *packet)
+void on_input(ENetPacket* packet, ENetPeer* peer)
 {
   uint16_t eid = invalid_entity;
   float thr = 0.f; float steer = 0.f;
-  deserialize_entity_input(packet, eid, thr, steer);
+  uint16_t new_reference_input_id = 0;
+  deserialize_entity_input(packet, eid, thr, steer, new_reference_input_id);
   for (Entity &e : entities)
     if (e.eid == eid)
     {
       e.thr = thr;
       e.steer = steer;
     }
+  send_input_acknowledgement(peer, new_reference_input_id);
+}
+
+void on_snapshot_acknowledgement(ENetPacket* packet)
+{
+  uint16_t eid, current_snapshot_id;
+  deserialize_snapshot_acknowledgement(packet, eid, current_snapshot_id);
+  approvedReferenceSnapshotMap[eid] = current_snapshot_id;
 }
 
 int main(int argc, const char **argv)
 {
   hw_test();
+
+  Snapshot snapshot;
+  snapshot.entities = entities;
+  snapshot.id = 0;
+
+  std::map<uint16_t, uint8_t> headers;
+
   if (enet_initialize() != 0)
   {
     printf("Cannot init ENet");
@@ -108,7 +128,10 @@ int main(int argc, const char **argv)
             on_join(event.packet, event.peer, server);
             break;
           case E_CLIENT_TO_SERVER_INPUT:
-            on_input(event.packet);
+            on_input(event.packet, event.peer);
+            break;
+          case E_CLIENT_TO_SERVER_SNAPSHOT_ACK:
+            on_snapshot_acknowledgement(event.packet);
             break;
         };
         enet_packet_destroy(event.packet);
@@ -122,13 +145,36 @@ int main(int argc, const char **argv)
     {
       // simulate
       simulate_entity(e, dt);
-      // send
-      for (size_t i = 0; i < server->peerCount; ++i)
+    }
+
+    snapshot.entities = entities;
+    snapshot.id++;
+    snapshotHistory.push_back(snapshot);
+
+    if(!entities.empty())
+    {
+      for (Entity& ent : entities)
       {
-        ENetPeer *peer = &server->peers[i];
-        // skip this here in this implementation
-        //if (controlledMap[e.eid] != peer)
-        send_snapshot(peer, e.eid, e.x, e.y, e.ori);
+        headers.clear();
+        ENetPeer* peer = controlledMap[ent.eid];
+        for (Entity& e1 : entities)
+        {
+          uint8_t header = 0;
+          for (Entity& e2 : snapshotHistory[approvedReferenceSnapshotMap[ent.eid]].entities)
+          {
+            if (e2.eid == e1.eid)
+            {
+              if (e1.x != e2.x || e1.y != e2.y)
+                header = header | 0b11000000;
+              if (e1.ori != e2.ori)
+                header = header | 0b10100000;
+              break;
+            }
+          }
+          headers[e1.eid] = header;
+        }
+
+        send_snapshot(peer, entities, headers, snapshot.id, approvedReferenceSnapshotMap[ent.eid]);
       }
     }
     usleep(10000);

@@ -5,11 +5,14 @@
 #include <enet/enet.h>
 #include <math.h>
 
+#include <deque>
 #include <vector>
+#include "auxilary.h"
 #include "entity.h"
 #include "protocol.h"
 
 
+static std::deque<Input> inputHistory;
 static std::vector<Entity> entities;
 static uint16_t my_entity = invalid_entity;
 
@@ -29,23 +32,30 @@ void on_set_controlled_entity(ENetPacket *packet)
   deserialize_set_controlled_entity(packet, my_entity);
 }
 
-void on_snapshot(ENetPacket *packet)
+void on_snapshot(ENetPacket *packet, ENetPeer* peer)
 {
-  uint16_t eid = invalid_entity;
-  float x = 0.f; float y = 0.f; float ori = 0.f;
-  deserialize_snapshot(packet, eid, x, y, ori);
-  // TODO: Direct adressing, of course!
-  for (Entity &e : entities)
-    if (e.eid == eid)
-    {
-      e.x = x;
-      e.y = y;
-      e.ori = ori;
-    }
+  uint16_t current_snapshot_id;
+  deserialize_snapshot(packet, entities, current_snapshot_id);
+  send_snapshot_acknowledgement(peer, my_entity, current_snapshot_id);
+}
+
+uint16_t on_input_acknowledgement(ENetPacket* packet)
+{
+  uint16_t new_reference_input_id = 0;
+  deserialize_input_acknowledgement(packet, new_reference_input_id);
+  return new_reference_input_id;
 }
 
 int main(int argc, const char **argv)
 {
+  uint16_t input_id = 0;
+  uint16_t reference_input_id = 0;
+  Input input;
+  input.id = input_id;
+  input.steer = 0;
+  input.thr = 0;
+  inputHistory.push_back(input);
+
   if (enet_initialize() != 0)
   {
     printf("Cannot init ENet");
@@ -73,7 +83,7 @@ int main(int argc, const char **argv)
   int width = 600;
   int height = 600;
 
-  InitWindow(width, height, "w5 networked MIPT");
+  InitWindow(width, height, "hw6");
 
   const int scrWidth = GetMonitorWidth(0);
   const int scrHeight = GetMonitorHeight(0);
@@ -117,7 +127,12 @@ int main(int argc, const char **argv)
           on_set_controlled_entity(event.packet);
           break;
         case E_SERVER_TO_CLIENT_SNAPSHOT:
-          on_snapshot(event.packet);
+          on_snapshot(event.packet, event.peer);
+          break;
+        case E_SERVER_TO_CLIENT_INPUT_ACK:
+          reference_input_id = on_input_acknowledgement(event.packet);
+          while (inputHistory[0].id != reference_input_id) //clear history
+            inputHistory.pop_front();
           break;
         };
         break;
@@ -136,11 +151,30 @@ int main(int argc, const char **argv)
         if (e.eid == my_entity)
         {
           // Update
-          float thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
-          float steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
+          int thr = 0;
+          int steer = 0;
+          input.thr = (up ? 1.f : 0.f) + (down ? -1.f : 0.f);
+          input.steer = (left ? -1.f : 0.f) + (right ? 1.f : 0.f);
+          input.id = ++input_id;
+          inputHistory.push_back(input);
+          uint8_t header = 0;
+          for (Input& input2 : inputHistory)
+          {
+            if (input2.id == reference_input_id)
+            {
+              if (input2.steer != input.steer || input2.thr != input.thr)
+              {
+                steer = (int)input.steer;
+                thr = (int)input.thr;
+                header = 128;
+              }
+              break;
+            }
+          }
 
           // Send
-          send_entity_input(serverPeer, my_entity, thr, steer);
+          send_entity_input(serverPeer, my_entity, input.thr, input.steer, header, input_id, reference_input_id);
+          break;
         }
     }
 
